@@ -1,0 +1,118 @@
+name: Manual Build & Release
+
+run-name: Manual Build & Release (${{ inputs.action }})
+
+on:
+  workflow_dispatch:
+    inputs:
+      action:
+        description: 'Action to perform'
+        required: true
+        default: 'build'
+        type: choice
+        options:
+          - build
+          - re-build
+
+env:
+  PROJECT_NAME: Valheim.LongerDaysNormalNights
+
+jobs:
+  build_process:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Restore Dependencies
+        run: |
+          mkdir TmpPackages && cd TmpPackages
+          cat << 'EOF' > TmpPackages.csproj
+          <Project Sdk="Microsoft.NET.Sdk">
+            <PropertyGroup><TargetFramework>netstandard2.0</TargetFramework></PropertyGroup>
+            <ItemGroup>
+              <PackageReference Include="Valheim.GameLibs" Version="0.202.14-r.0" />
+              <PackageReference Include="BepInEx.Core" Version="5.4.21" />
+              <PackageReference Include="HarmonyX" Version="2.13.0" />
+              <PackageReference Include="UnityEngine.Modules" Version="2021.3.33" />
+            </ItemGroup>
+          </Project>
+          EOF
+          dotnet restore --source https://api.nuget.org/v3/index.json --source https://nuget.bepinex.dev/v3/index.json
+
+      - name: Resolve Versioning
+        id: versioning
+        run: |
+          if [ "${{ github.event.inputs.action }}" == "re-build" ]; then
+            LAST_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "v1.0.0")
+            echo "new_tag=$LAST_TAG" >> $GITHUB_OUTPUT
+            echo "MODE=read_only" >> $GITHUB_ENV
+          else
+            echo "MODE=auto_bump" >> $GITHUB_ENV
+          fi
+
+      - name: Auto Bump Version
+        if: env.MODE == 'auto_bump'
+        id: auto_bump
+        uses: anothrNick/github-tag-action@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          WITH_V: true
+          DEFAULT_BUMP: patch
+
+      - name: Finalize Version
+        run: |
+          if [ "${{ env.MODE }}" == "auto_bump" ]; then
+            TAG="${{ steps.auto_bump.outputs.new_tag }}"
+          else
+            TAG="${{ steps.versioning.outputs.new_tag }}"
+          fi
+          echo "TAG=$TAG" >> $GITHUB_ENV
+          echo "CLEAN_VERSION=${TAG#v}" >> $GITHUB_ENV
+
+      - name: Output Job Summary
+        run: |
+          echo "### 🚀 Build Info" >> $GITHUB_STEP_SUMMARY
+          echo "- **Action:** ${{ github.event.inputs.action }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Version:** v${{ env.CLEAN_VERSION }}" >> $GITHUB_STEP_SUMMARY
+
+      - name: Compile
+        run: |
+          sed -i "s/\${VERSION}/${{ env.CLEAN_VERSION }}/g" ${{ env.PROJECT_NAME }}.cs
+
+          CSC_PATH=$(find /usr/share/dotnet/sdk -name csc.dll | head -n 1)
+          REF_DIR=$(dirname $(find /usr/share/dotnet/packs/NETStandard.Library.Ref -name netstandard.dll | head -n 1))
+          NUGET_CACHE="/home/runner/.nuget/packages"
+
+          VALHEIM_DLL=$(find "$NUGET_CACHE" -iname "*valheim*.dll" | head -n 1)
+          HARMONY_DLL=$(find "$NUGET_CACHE" -iname "0Harmony.dll" | head -n 1)
+          BEPINEX_DLL=$(find "$NUGET_CACHE" -name "BepInEx.dll" | head -n 1)
+          UNITY_CORE_DLL=$(find "$NUGET_CACHE" -name "UnityEngine.CoreModule.dll" | head -n 1)
+          UNITY_DLL=$(find "$NUGET_CACHE" -name "UnityEngine.dll" | head -n 1)
+
+          dotnet "$CSC_PATH" /target:library /out:${{ env.PROJECT_NAME }}.dll \
+            /reference:"$REF_DIR/netstandard.dll" /reference:"$REF_DIR/mscorlib.dll" \
+            /reference:"$VALHEIM_DLL" /reference:"$UNITY_CORE_DLL" /reference:"$UNITY_DLL" \
+            /reference:"$HARMONY_DLL" /reference:"$BEPINEX_DLL" \
+            *.cs
+
+      - name: Package
+        run: |
+          mkdir release
+          mv ${{ env.PROJECT_NAME }}.dll release/
+          zip -j ${{ env.PROJECT_NAME }}.zip release/${{ env.PROJECT_NAME }}.dll
+
+      - name: Release
+        run: |
+          if [ "${{ github.event.inputs.action }}" == "re-build" ]; then
+            gh release delete ${{ env.TAG }} --cleanup-tag -y || true
+          fi
+          gh release create ${{ env.TAG }} --title "Release ${{ env.TAG }}" --generate-notes ${{ env.PROJECT_NAME }}.zip
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
