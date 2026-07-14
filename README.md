@@ -9,6 +9,7 @@ Extends the bright in-game midday to **3x its vanilla length**, creating a perfe
 - **3x Peak Daylight:** Extends the bright midday sun (6:00 to 18:00) from 15 minutes to **45 minutes** of real-time. Plenty of time for massive building projects and long crypt runs.
 - **Vanilla Dawn, Dusk & Nights:** Twilight phases and nights remain exactly at their standard durations (15 minutes combined). You keep the full immersive atmosphere without the boring, stretched-out nights.
 - **Perfect 1-Hour Cycle:** The total day/night loop lasts exactly 60 minutes, making it incredibly easy to track time.
+- **Farming & Smelting Advantage:** Smelter processing and plant growth are tied to real-world seconds. With a massive 45-minute daylight phase, you can process mountains of ore and see crops reach maturity largely within a single sunny day!
 - **Zero Performance Impact:** Highly optimized, ultra-lightweight guard clauses with zero overhead. 
 - **Plug & Play:** Zero configuration needed.
 
