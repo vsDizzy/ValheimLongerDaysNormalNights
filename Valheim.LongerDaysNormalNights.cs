@@ -46,20 +46,26 @@ namespace Valheim
             harmony = null;
         }
 
-        [HarmonyPatch(typeof(EnvMan), "Update")]
+        [HarmonyPatch(typeof(EnvMan), "Awake")]
         [HarmonyPostfix]
-        public static void Postfix(EnvMan __instance, ref float ___m_smoothDayFraction)
+        public static void AwakePostfix(EnvMan __instance)
         {
-            if (__instance == null || ZNet.instance == null) return;
+            float totalCycleTime = NightPart1Sec + DawnSec + DaySec + DuskSec + NightPart2Sec;
+            __instance.m_dayLengthSec = (long)totalCycleTime;
+        }
+
+        [HarmonyPatch(typeof(EnvMan), "GetDayFraction")]
+        [HarmonyPrefix]
+        public static bool GetDayFractionPrefix(EnvMan __instance, ref float __result)
+        {
+            if (ZNet.instance == null) return true;
 
             float t1 = NightPart1Sec;
             float t2 = t1 + DawnSec;
             float t3 = t2 + DaySec;
             float t4 = t3 + DuskSec;
-            float totalCycleTime = t4 + NightPart2Sec; // 3600 seconds (60 minutes)
+            float totalCycleTime = t4 + NightPart2Sec;
             
-            __instance.m_dayLengthSec = (long)totalCycleTime;
-
             double timeSeconds = ZNet.instance.GetTimeSeconds();
             float t_sec = (float)(timeSeconds % totalCycleTime);
 
@@ -86,7 +92,16 @@ namespace Valheim
                 v = Mathf.Lerp(0.85f, 1.0f, (t_sec - t4) / NightPart2Sec);
             }
 
-            ___m_smoothDayFraction = v;
+            __result = v;
+            return false; 
+        }
+        
+        [HarmonyPatch(typeof(EnvMan), "Update")]
+        [HarmonyPostfix]
+        public static void UpdatePostfix(EnvMan __instance, ref float ___m_smoothDayFraction)
+        {
+            if (__instance == null || ZNet.instance == null) return;
+            ___m_smoothDayFraction = __instance.GetDayFraction();
         }
     }
 }
